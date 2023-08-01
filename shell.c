@@ -13,9 +13,11 @@ static int callback(void *not_used, int argc, char **argv, char **colname) {
         printf("%s = %s\n", colname[i], argv[i] ? argv[i] : "NULL");
     }
     
-    printf("\n");
-    
     return 0;
+}
+
+void usage(void) {
+  puts("close; to close and save encrypted database");
 }
 
 void shell(sqlite3 *db) {
@@ -26,10 +28,12 @@ void shell(sqlite3 *db) {
   ssize_t sql_len = 0;
   char *err = NULL;
 
+  puts("help; for hints");
+
   while(true) {
     printf("> ");
     if ((sql_len = getdelim(&sql_buf, &sql_n, delim, stdin)) == -1) {
-      perror(NULL);
+      printf("\ncould not read sql\n");
       return;
     }
 
@@ -41,18 +45,17 @@ void shell(sqlite3 *db) {
       sql++;
     }
 
-    if (strcmp(sql, "end;") == 0)
+    if (strcmp(sql, "close;") == 0)
       break;
 
     if (strcmp(sql, "help;") == 0) {
-      puts("end; to close and save encrypted database");
+      usage();
       continue;
     }
 
     sqlite3_exec(db, sql, callback, NULL, &err);
     if (err) {
       puts(err);
-      puts("help; for hints");
     }
   }
   free(sql_buf);

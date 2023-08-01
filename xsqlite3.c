@@ -18,7 +18,7 @@
 #define CRYPTO_DECRYPT crypto_aead_xchacha20poly1305_ietf_decrypt
 
 sqlite3 *db;
-char *database_path = "database.xdb";
+char *database_path;
 
 unsigned char nonce[NONCE_SIZE];
 unsigned char key[KEY_SIZE];
@@ -39,7 +39,7 @@ unsigned char* encrypt_database(unsigned long long *len) {
 
   unsigned char *out = malloc(A_SIZE + db_size);
   if (out == NULL) {
-    perror("malloc()");
+    perror(NULL);
     exit(1);
   }
 
@@ -50,7 +50,7 @@ unsigned char* encrypt_database(unsigned long long *len) {
 
 void extract_nonce(FILE *f) {
   if (fread(nonce, NONCE_SIZE, 1, f) != 1) {
-    fprintf(stderr, "could not read nonce from '%s'", database_path);
+    fprintf(stderr, "could not read nonce from '%s'\n", database_path);
     exit(1);
   }
 
@@ -59,7 +59,6 @@ void extract_nonce(FILE *f) {
     exit(1);
   }
 }
-
 
 void extract_database(FILE *f) {
   if (fseek(f, NONCE_SIZE, SEEK_SET) != 0) {
@@ -99,8 +98,7 @@ void extract_database(FILE *f) {
   unsigned long long decrypted_len;
   unsigned char decrypted[size];
 
-  int r = CRYPTO_DECRYPT(decrypted, &decrypted_len, NULL, encrypted, size, NULL, 0, nonce, key);
-  if (r == -1) {
+  if (CRYPTO_DECRYPT(decrypted, &decrypted_len, NULL, encrypted, size, NULL, 0, nonce, key) == -1) {
     fprintf(stderr, "decrypt failed\n");
     exit(1);
   }
@@ -123,7 +121,7 @@ void load_database(void) {
   extract_database(database_file);
 
   if (fclose(database_file) != 0) {
-    perror("fclose()");
+    perror(NULL);
     exit(1);
   }
 }
@@ -165,12 +163,12 @@ void save_database(void) {
   free(encrypted);
 
   if (fclose(database_file) != 0) {
-    perror("fclose()");
+    perror(NULL);
     exit(1);
   }
 
   if (rename(database_tmp_path, database_path) != 0) {
-      fprintf(stderr, "could not rename back '%s' to '%s'", database_path, database_tmp_path);
+      fprintf(stderr, "could not rename back '%s' to '%s'\n", database_path, database_tmp_path);
       exit(1);
   }
 }
@@ -189,7 +187,47 @@ void toggle_echo(void) {
   tcsetattr(fileno(stdin), 0, &term);
 }
 
-int main() {
+char* readpassword(char *prompt) {
+  char *password = NULL;
+  size_t password_n = 0;
+  ssize_t password_len = 0;
+
+  toggle_echo();
+  printf("%s", prompt);
+  if ((password_len = getline(&password, &password_n, stdin)) == -1) {
+    perror(NULL);
+    exit(1);
+  }
+  printf("\n");
+  toggle_echo();
+
+  password[password_len - 1] = '\0';
+  return password;
+}
+
+int main(int argc, char **argv) {
+
+  int opt;
+
+  while ((opt = getopt(argc, argv, "f:h")) != -1) {
+    switch(opt) {
+      case 'h':
+        printf("usage: %s [OPTION] -f [FILE]\n", argv[0]);
+        puts("\t-f [FILE] database file");
+        return 0;
+      case 'f':
+        database_path = optarg;
+        break;
+      default:
+        return 1;
+    }
+  }
+
+  if (!database_path) {
+    fprintf(stderr, "no database file provided\n");
+    fprintf(stderr, "%s -h for help\n", argv[0]);
+    return 1;
+  }
 
   tcgetattr(fileno(stdin), &term);
 
@@ -198,24 +236,22 @@ int main() {
     return 1;
   }
 
-  char *password = NULL;
-  size_t password_n = 0;
-  ssize_t password_len = 0;
+  char *password = readpassword("password: ");
 
-  toggle_echo();
-  printf("password: ");
-  if ((password_len = getline(&password, &password_n, stdin)) == -1) {
-    perror(NULL);
-    return 1;
+  if (access(database_path, F_OK) != 0) {
+    char *password_tmp = readpassword("confirm password: ");
+
+    if (!(strcmp(password, password_tmp) == 0)) {
+      fprintf(stderr, "passwords does not match\n");
+      return 1;
+    }
+
+    free(password_tmp);
   }
-  printf("\n");
-  toggle_echo();
 
-  // remove newline
-  password[password_len - 1] = '\0';
-  password_len--;
+  hash_password(password, strlen(password), key);
 
-  hash_password(password, password_len, key);
+  free(password);
 
   init_database();
 
@@ -227,7 +263,5 @@ int main() {
   save_database();
 
   close_database();
-
-  free(password);
 
 }
