@@ -22,7 +22,6 @@ char *database_path;
 
 unsigned char nonce[NONCE_SIZE];
 unsigned char key[KEY_SIZE];
-unsigned char keyfilebuf[KEY_SIZE];
 
 struct termios term;
 
@@ -210,6 +209,7 @@ int main(int argc, char **argv) {
 
   int opt;
   FILE *keyfile;
+  unsigned char keyfilebuf[KEY_SIZE] = {0};
 
   while ((opt = getopt(argc, argv, "f:hk:")) != -1) {
     switch(opt) {
