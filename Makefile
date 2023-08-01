@@ -1,14 +1,25 @@
 CC=cc
 CFLAGS=-Wall
 LIBS=-lsodium -lsqlite3
+BIN_DEST=/usr/local/bin
+NAME=xsqlite3
 
-all: xsqlite3
+all: $(NAME)
 
 %.o: %.c
 	$(CC) $(CFLAGS) $< $(LIBS) -c
 
-xsqlite3: xsqlite3.o shell.o
+$(NAME): $(NAME).o shell.o
 	$(CC) $(CFLAGS) $^ $(LIBS) -o $@ 
 
+.PHONY: clean install uninstall
+
 clean:
-	rm -f *.o xsqlite
+	rm -f *.o $(NAME)
+
+install: all
+	mkdir -p $(BIN_DEST)
+	cp $(NAME) $(BIN_DEST)
+
+uninstall:
+	rm -f $(BIN_DEST)/$(NAME)
