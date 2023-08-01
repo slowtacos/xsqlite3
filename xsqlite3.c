@@ -22,6 +22,7 @@ char *database_path;
 
 unsigned char nonce[NONCE_SIZE];
 unsigned char key[KEY_SIZE];
+unsigned char keyfilebuf[KEY_SIZE];
 
 struct termios term;
 
@@ -208,15 +209,29 @@ char* readpassword(char *prompt) {
 int main(int argc, char **argv) {
 
   int opt;
+  FILE *keyfile;
 
-  while ((opt = getopt(argc, argv, "f:h")) != -1) {
+  while ((opt = getopt(argc, argv, "f:hk:")) != -1) {
     switch(opt) {
       case 'h':
-        printf("usage: %s [OPTION] -f [FILE]\n", argv[0]);
+        printf("usage: %s [OPTIONS] -f [FILE]\n", argv[0]);
         puts("\t-f [FILE] database file");
+        puts("\t-k [KEYFILE] xor master key with KEYFILE after hashing password");
         return 0;
       case 'f':
         database_path = optarg;
+        break;
+      case 'k':
+        keyfile = fopen(optarg, "r");
+        if (!keyfile) {
+          perror(NULL);
+          return 1;
+        }
+
+        if (fread(keyfilebuf, KEY_SIZE, 1, keyfile) != 1) {
+          fprintf(stderr, "could not read keyfile, make sure the file size is at least %u\n", KEY_SIZE);
+          return 1;
+        }
         break;
       default:
         return 1;
@@ -252,6 +267,11 @@ int main(int argc, char **argv) {
   hash_password(password, strlen(password), key);
 
   free(password);
+
+  if (memcmp(keyfilebuf, (unsigned char[KEY_SIZE]){0}, KEY_SIZE) != 0) {
+    for (unsigned long long i = 0; i < KEY_SIZE; i++)
+      key[i] ^= keyfilebuf[i];
+  }
 
   init_database();
 
