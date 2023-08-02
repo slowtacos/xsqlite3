@@ -7,7 +7,7 @@ NAME=xsqlite3
 all: $(NAME)
 
 %.o: %.c
-	$(CC) $(CFLAGS) $< $(LIBS) -c
+	$(CC) $(CFLAGS) $< -c
 
 $(NAME): $(NAME).o shell.o util.o
 	$(CC) $(CFLAGS) $^ $(LIBS) -o $@ 
