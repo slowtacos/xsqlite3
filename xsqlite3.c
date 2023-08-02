@@ -10,6 +10,7 @@
 #include <termios.h>
 #include <stdbool.h>
 #include "shell.h"
+#include "util.h"
 
 #define NONCE_SIZE crypto_aead_xchacha20poly1305_ietf_NPUBBYTES
 #define A_SIZE crypto_aead_xchacha20poly1305_ietf_ABYTES
@@ -29,19 +30,13 @@ void gen_nonce(void) {
   randombytes(nonce, NONCE_SIZE);
 }
 
-unsigned char* encrypt_database(unsigned long long *len) {
+unsigned char *encrypt_database(unsigned long long *len) {
   sqlite3_int64 db_size = 0;
   unsigned char *db_ptr = sqlite3_serialize(db, "main", &db_size, 0);
-  if (db_ptr == NULL) {
-    fprintf(stderr, "could not serialize database\n");
-    exit(1);
-  }
+  if (db_ptr == NULL)
+    die("could not serialize database");
 
-  unsigned char *out = malloc(A_SIZE + db_size);
-  if (out == NULL) {
-    perror(NULL);
-    exit(1);
-  }
+  unsigned char *out = emalloc(A_SIZE + db_size);
 
   CRYPTO_ENCRYPT(out, len, db_ptr, db_size, NULL, 0, NULL, nonce, key);
   sqlite3_free(db_ptr);
@@ -49,88 +44,52 @@ unsigned char* encrypt_database(unsigned long long *len) {
 }
 
 void extract_nonce(FILE *f) {
-  if (fread(nonce, NONCE_SIZE, 1, f) != 1) {
-    fprintf(stderr, "could not read nonce from '%s'\n", database_path);
-    exit(1);
-  }
+  if (fread(nonce, NONCE_SIZE, 1, f) != 1)
+    die("could not read nonce from '%s'", database_path);
 
-  if (fseek(f, 0, SEEK_SET) != 0) {
-    perror(NULL);
-    exit(1);
-  }
+  efseek(f, 0, SEEK_SET);
 }
 
 void extract_database(FILE *f) {
-  if (fseek(f, NONCE_SIZE, SEEK_SET) != 0) {
-    perror(NULL);
-    exit(1);
-  }
+  efseek(f, NONCE_SIZE, SEEK_SET);
 
   long start, end, size;
-  if ((start = ftell(f)) == -1) {
-    perror(NULL);
-    exit(1);
-  } 
+  start = eftell(f);
 
-  if (fseek(f, 0, SEEK_END) != 0) {
-    perror(NULL);
-    exit(1);
-  }
+  efseek(f, 0, SEEK_END);
 
-  if ((end = ftell(f)) == -1) {
-    perror(NULL);
-    exit(1);
-  } 
+  end = eftell(f);
 
-  if (fseek(f, start, SEEK_SET) != 0) {
-    perror(NULL);
-    exit(1);
-  }
+  efseek(f, start, SEEK_SET);
 
   size = end - start;
 
   unsigned char encrypted[size];
-  if (fread(encrypted, size, 1, f) != 1) {
-    fprintf(stderr, "could not read database from '%s'\n", database_path);
-    exit(1);
-  }
+  if (fread(encrypted, size, 1, f) != 1)
+    die("could not read database from '%s'", database_path);
 
   unsigned long long decrypted_len;
   unsigned char decrypted[size];
 
-  if (CRYPTO_DECRYPT(decrypted, &decrypted_len, NULL, encrypted, size, NULL, 0, nonce, key) == -1) {
-    fprintf(stderr, "decrypt failed\n");
-    exit(1);
-  }
+  if (CRYPTO_DECRYPT(decrypted, &decrypted_len, NULL, encrypted, size, NULL, 0, nonce, key) == -1)
+    die("decrypt failed");
 
-  if (sqlite3_deserialize(db, "main", decrypted, decrypted_len, sizeof decrypted, 0) != SQLITE_OK) {
-    fprintf(stderr, "could not deserialize database\n");
-    exit(1);
-  }
+  if (sqlite3_deserialize(db, "main", decrypted, decrypted_len, sizeof decrypted, 0) != SQLITE_OK)
+    die("could not deserialize database");
 }
 
 void load_database(void) {
-  FILE *database_file = fopen(database_path, "r");
-
-  if (database_file == NULL) {
-    perror(NULL);
-    exit(1);
-  }
+  FILE *database_file = efopen(database_path, "r");
 
   extract_nonce(database_file);
   extract_database(database_file);
 
-  if (fclose(database_file) != 0) {
-    perror(NULL);
-    exit(1);
-  }
+  efclose(database_file);
 }
 
 void init_database(void) {
-  if (sqlite3_open(":memory:", &db) != SQLITE_OK) {
-    fprintf(stderr, "could not initialize database\n");
-    exit(1);
-  }
+  if (sqlite3_open(":memory:", &db) != SQLITE_OK)
+    die("could not initialize database");
 }
 
 void save_database(void) {
@@ -138,44 +97,31 @@ void save_database(void) {
   char database_tmp_path[database_tmp_path_len];
   snprintf(database_tmp_path, database_tmp_path_len, "%s.tmp", database_path);
 
-  FILE *database_file = fopen(database_tmp_path, "w+");
-  if (database_file == NULL) {
-    perror(NULL);
-    exit(1);
-  }
+  FILE *database_file = efopen(database_tmp_path, "w+");
 
   gen_nonce();
 
-  if (fwrite(nonce, NONCE_SIZE, 1, database_file) != 1) {
-    fprintf(stderr, "could not write nonce to '%s'\n", database_path);
-    exit(1);
-  }
+  if (fwrite(nonce, NONCE_SIZE, 1, database_file) != 1)
+    die("could not write nonce to '%s'", database_path);
 
   unsigned long long encrypted_size;
   unsigned char* encrypted;
   encrypted = encrypt_database(&encrypted_size);
 
-  if (fwrite(encrypted, encrypted_size, 1, database_file) != 1) {
-    fprintf(stderr, "could not write database to '%s'\n", database_path);
-    exit(1);
-  }
+  if (fwrite(encrypted, encrypted_size, 1, database_file) != 1)
+    die("could not write database to '%s'", database_path);
 
   free(encrypted);
 
-  if (fclose(database_file) != 0) {
-    perror(NULL);
-    exit(1);
-  }
+  efclose(database_file);
 
-  if (rename(database_tmp_path, database_path) != 0) {
-      fprintf(stderr, "could not rename back '%s' to '%s'\n", database_path, database_tmp_path);
-      exit(1);
-  }
+  if (rename(database_tmp_path, database_path) != 0)
+      die("could not rename back '%s' to '%s'", database_path, database_tmp_path);
 }
 
 void close_database(void) {
   if (sqlite3_close(db) != SQLITE_OK)
-    perror("sqlite3_close()");
+    die("sqlite3_close");
 }
 
 void hash_password(char *password, size_t password_len, unsigned char *out) {
@@ -194,10 +140,8 @@ char* readpassword(char *prompt) {
 
   toggle_echo();
   printf("%s", prompt);
-  if ((password_len = getline(&password, &password_n, stdin)) == -1) {
-    perror(NULL);
-    exit(1);
-  }
+  if ((password_len = getline(&password, &password_n, stdin)) == -1)
+    die("getline:");
   printf("\n");
   toggle_echo();
 
@@ -222,19 +166,12 @@ int main(int argc, char **argv) {
         database_path = optarg;
         break;
       case 'k':
-        keyfile = fopen(optarg, "r");
-        if (!keyfile) {
-          perror(NULL);
-          return 1;
-        }
+        keyfile = efopen(optarg, "r");
 
-        if (fread(keyfilebuf, KEY_SIZE, 1, keyfile) != 1) {
-          fprintf(stderr, "could not read keyfile, make sure the file size is at least %u\n", KEY_SIZE);
-          return 1;
-        }
+        if (fread(keyfilebuf, KEY_SIZE, 1, keyfile) != 1)
+          die("could not read keyfile, make sure the file size is at least %u", KEY_SIZE);
+
         break;
-      default:
-        return 1;
     }
   }
 
@@ -246,20 +183,16 @@ int main(int argc, char **argv) {
 
   tcgetattr(fileno(stdin), &term);
 
-  if (sodium_init() == -1) {
-    perror("sodium_init()");
-    return 1;
-  }
+  if (sodium_init() == -1)
+    die("sodium_init");
 
   char *password = readpassword("password: ");
 
   if (access(database_path, F_OK) != 0) {
     char *password_tmp = readpassword("confirm password: ");
 
-    if (!(strcmp(password, password_tmp) == 0)) {
-      fprintf(stderr, "passwords does not match\n");
-      return 1;
-    }
+    if (!(strcmp(password, password_tmp) == 0))
+      die("passwords does not match");
 
     free(password_tmp);
   }

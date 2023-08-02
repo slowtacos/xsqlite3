@@ -9,7 +9,7 @@ all: $(NAME)
 %.o: %.c
 	$(CC) $(CFLAGS) $< $(LIBS) -c
 
-$(NAME): $(NAME).o shell.o
+$(NAME): $(NAME).o shell.o util.o
 	$(CC) $(CFLAGS) $^ $(LIBS) -o $@ 
 
 .PHONY: clean install uninstall
